@@ -1,0 +1,14 @@
+{
+  "name": "hedera-oem-marketplace",
+  "version": "1.0.0",
+  "scripts": {
+    "compile": "npx hardhat compile",
+    "deploy": "npx hardhat run scripts/deploy.js --network hedera"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^3.0.0",
+    "dotenv": "^16.5.0",
+    "ethers": "^6.0.0",
+    "hardhat": "^2.23.0"
+  }
+}
