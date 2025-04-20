@@ -2,14 +2,25 @@ let provider, signer;
 let OEMRegistry, productManager, marketplace, disputeResolution;
 let availableProducts = [];
 
+// Create a Set to track purchased products
+const purchasedProducts = new Set();
+
 // Your wallet address - will be used for registration
-const YOUR_ADDRESS = "0xd1E77a74d017391888A8137892d53f814Dcb7B14";
+const YOUR_ADDRESS = "0xF1c0cF6924ECe517667Ea0A3393393391D01b863";
+// Buyer wallet address for purchasing products
+const BUYER_ADDRESS = "0xd1E77a74d017391888A8137892d53f814Dcb7B14";
+let buyerSigner = null;
 
 // Contract addresses
-const registryAddress = "0xb16Fb8Cef433811caB8f08c1e82DdC06678D244D";
-const productManagerAddress = "0xa4952F14fa54E41334f0d915a0a54162E3a215a1";
-const marketplaceAddress = "0xe090ed0325F9dE97e10F6A7c03bB735083644079";
-const disputeAddress = "0xA6f95F7F53a921eaF430630FbEaBC631e1BdC710";
+const registryAddress = "0xccEC3be4217c3335390299B290db88cA5Fd47573";
+const productManagerAddress = "0x54448C23AE24c7eaE4e0CE47CB31cB75e6AD6F33";
+const marketplaceAddress = "0xB284F908Ce1d946bB4ef9A5b0Efc6460cA5d8d5b";
+const disputeAddress = "0x6DDBDdeE3598fC4eBD187942048137253E09fFa6";
+
+// OEMRegistry:        0xccEC3be4217c3335390299B290db88cA5Fd47573
+// ProductManager:     0x54448C23AE24c7eaE4e0CE47CB31cB75e6AD6F33
+// Marketplace:        0xB284F908Ce1d946bB4ef9A5b0Efc6460cA5d8d5b
+// DisputeResolution:  0x6DDBDdeE3598fC4eBD187942048137253E09fFa6
 
 // Custom provider for Hedera
 const HEDERA_RPC_URL = "https://testnet.hashio.io/api";
@@ -30,9 +41,14 @@ async function connectWallet() {
     provider = new ethers.providers.JsonRpcProvider(HEDERA_RPC_URL);
     
     // Use private key (only for testing/development!)
-    // const privateKey = "e6fb347bcef5a6aa9a1479e5d3acce6221b97da9e0fd88f4e45144bf667fb629";
-    const privateKey = "6901cd9c45d64376247b89d35d153d128511bc81b2508f10c1321e62e7028ce0";
+    const privateKey = "e6fb347bcef5a6aa9a1479e5d3acce6221b97da9e0fd88f4e45144bf667fb629";
     signer = new ethers.Wallet(privateKey, provider);
+    
+    // Initialize buyer signer with a different wallet
+    // This wallet will be used for purchasing products
+    // For the demo, we'll initialize it but in production this would be done via MetaMask
+    const buyerPrivateKey = "6901cd9c45d64376247b89d35d153d128511bc81b2508f10c1321e62e7028ce0"; // Add a private key for testing or use MetaMask
+    buyerSigner = new ethers.Wallet(buyerPrivateKey, provider);
     
     if (signer.address !== YOUR_ADDRESS) {
       console.warn("Warning: Connected wallet address doesn't match expected address.");
@@ -42,6 +58,7 @@ async function connectWallet() {
     
     statusDiv.innerText = `✅ Connected: ${signer.address}`;
     console.log("Connected wallet:", signer.address);
+    console.log("Buyer wallet:", BUYER_ADDRESS);
 
     // Initialize contracts
     try {
@@ -96,6 +113,54 @@ async function connectWallet() {
   }
 }
 
+
+async function setMarketplaceInProductManager() {
+  if (!productManager || !marketplace) {
+    alert("Please connect wallet first.");
+    return;
+  }
+
+  try {
+    console.log("Setting marketplace address in ProductManager...");
+    console.log("Marketplace address:", marketplaceAddress);
+    
+    // Add gas configuration for Hedera
+    const overrides = {
+      gasLimit: ethers.utils.hexlify(1000000),
+      gasPrice: ethers.BigNumber.from(HEDERA_MIN_GAS_PRICE)
+    };
+    
+    // Set the marketplace address in the ProductManager
+    const tx = await productManager.setMarketplace(marketplaceAddress, overrides);
+    console.log("Transaction sent:", tx.hash);
+    
+    alert("Setting marketplace address. Waiting for confirmation...");
+    
+    const receipt = await tx.wait();
+    console.log("Transaction confirmed:", receipt);
+    
+    if (receipt.status === 1) {
+      alert("Marketplace address set successfully.");
+      
+      // Verify the setting
+      const setAddress = await productManager.marketplace();
+      console.log("Verified marketplace address:", setAddress);
+      
+      if (setAddress.toLowerCase() === marketplaceAddress.toLowerCase()) {
+        console.log("✅ Marketplace address correctly set in ProductManager");
+      } else {
+        console.warn("⚠️ Marketplace address mismatch!", setAddress, marketplaceAddress);
+      }
+    } else {
+      alert("Transaction completed but may have failed. Check the console for details.");
+    }
+  } catch (error) {
+    console.error("❌ Error setting marketplace address:", error);
+    alert(`Error: ${error.message}`);
+  }
+}
+
+// Modified checkUserRoles function to check both YOUR_ADDRESS and BUYER_ADDRESS
 async function checkUserRoles() {
   if (!OEMRegistry) {
     console.log("OEMRegistry not initialized. Please connect wallet first.");
@@ -103,17 +168,29 @@ async function checkUserRoles() {
   }
   
   try {
-    // Check if user is an OEM
+    // Check if YOUR_ADDRESS is an OEM
     const isOEM = await OEMRegistry.isOEM(YOUR_ADDRESS);
     console.log("Is OEM:", isOEM);
     
-    // Check if user is a Buyer
+    // Check if YOUR_ADDRESS is a Buyer
     const isBuyer = await OEMRegistry.isBuyer(YOUR_ADDRESS);
     console.log("Is Buyer:", isBuyer);
     
-    // Get user role
+    // Get YOUR_ADDRESS role
     const role = await OEMRegistry.getUserRole(YOUR_ADDRESS);
-    console.log("User Role:", role.toString());
+    console.log("Your Role:", role.toString());
+    
+    // Check if BUYER_ADDRESS is registered as a buyer
+    let isBuyerRegistered = false;
+    let buyerRole = "Unknown";
+    try {
+      isBuyerRegistered = await OEMRegistry.isBuyer(BUYER_ADDRESS);
+      buyerRole = await OEMRegistry.getUserRole(BUYER_ADDRESS);
+      console.log("Is Buyer address registered:", isBuyerRegistered);
+      console.log("Buyer address role:", buyerRole.toString());
+    } catch (e) {
+      console.log("Could not check buyer address registration", e);
+    }
     
     const roleMap = {
       "0": "Admin",
@@ -124,20 +201,36 @@ async function checkUserRoles() {
     const roleStatus = document.getElementById("roleStatus");
     if (roleStatus) {
       roleStatus.innerHTML = `
-        <strong>Current Roles:</strong><br>
-        OEM: ${isOEM ? '✅' : '❌'}<br>
-        Buyer: ${isBuyer ? '✅' : '❌'}<br>
-        Role: ${roleMap[role.toString()] || 'Unknown'}
+        <h3>OEM Address (${YOUR_ADDRESS.substring(0, 6)}...${YOUR_ADDRESS.substring(38)})</h3>
+        <strong>Status:</strong><br>
+        Registered as OEM: ${isOEM ? '✅' : '❌'}<br>
+        Role: ${roleMap[role.toString()] || 'Unknown'}<br>
+        
+        <h3>Buyer Address (${BUYER_ADDRESS.substring(0, 6)}...${BUYER_ADDRESS.substring(38)})</h3>
+        <strong>Status:</strong><br>
+        Registered as Buyer: ${isBuyerRegistered ? '✅' : '❌'}<br>
+        Role: ${roleMap[buyerRole.toString()] || 'Unknown'}
       `;
     }
     
-    return { isOEM, isBuyer, role: role.toString() };
+    return { 
+      yourAddress: {
+        isOEM, 
+        isBuyer, 
+        role: role.toString()
+      },
+      buyerAddress: {
+        isBuyerRegistered,
+        role: buyerRole.toString()
+      }
+    };
   } catch (error) {
     console.error("Error checking user roles:", error);
     return null;
   }
 }
 
+// Improved loadAvailableProducts function
 async function loadAvailableProducts() {
   if (!productManager) {
     console.log("ProductManager not initialized. Please connect wallet first.");
@@ -161,11 +254,27 @@ async function loadAvailableProducts() {
     const products = await Promise.all(productPromises);
     console.log("All products:", products);
     
-    // Filter for available products
+    // Filter for available products with more robust checking
     availableProducts = products.filter(product => {
-      // Check if available flag is true (could be at index 5 or as a named property)
-      const isAvailable = product.available !== undefined ? product.available : product[5];
-      return isAvailable;
+      // Check if the product is properly formed
+      if (!product) return false;
+      
+      // Extract the availability property regardless of structure
+      let isAvailable;
+      if (typeof product.available !== 'undefined') {
+        isAvailable = product.available;
+      } else if (typeof product[5] !== 'undefined') {
+        isAvailable = product[5];
+      } else {
+        console.warn(`Product ${product.id || product[0]} has no availability property`);
+        return false;
+      }
+      
+      // Also check that the seller isn't zero address which might indicate a deleted or invalid product
+      const seller = product.seller || product[4];
+      const isValidSeller = seller && seller !== "0x0000000000000000000000000000000000000000";
+      
+      return isAvailable && isValidSeller;
     });
     
     console.log("Available products:", availableProducts);
@@ -173,106 +282,126 @@ async function loadAvailableProducts() {
     // Populate dropdown menus
     populateProductDropdowns(availableProducts);
     
+    // Update UI to show the count of available products
+    const countElem = document.getElementById("availableProductCount");
+    if (countElem) {
+      countElem.innerText = `${availableProducts.length} available products`;
+    }
+    
+    return availableProducts;
   } catch (error) {
     console.error("Error loading products:", error);
     alert(`Error loading products: ${error.message}`);
+    return [];
   }
 }
 
+
+// Improved function to populate product dropdowns with better handling
 function populateProductDropdowns(products) {
   // Get all dropdown elements
   const buyDropdown = document.getElementById("productDropdown");
   const disputeDropdown = document.getElementById("disputeProductDropdown");
   const infoDropdown = document.getElementById("infoProductDropdown");
   
+  // Store current selections before clearing
+  const buySelected = buyDropdown ? buyDropdown.value : "";
+  const disputeSelected = disputeDropdown ? disputeDropdown.value : "";
+  const infoSelected = infoDropdown ? infoDropdown.value : "";
+  
   // Clear existing options except the first one
-  buyDropdown.innerHTML = `<option value="">-- Select a product --</option>`;
-  disputeDropdown.innerHTML = `<option value="">-- Select a product --</option>`;
-  infoDropdown.innerHTML = `<option value="">-- Select a product --</option>`;
+  if (buyDropdown) buyDropdown.innerHTML = `<option value="">-- Select a product --</option>`;
+  if (disputeDropdown) disputeDropdown.innerHTML = `<option value="">-- Select a product --</option>`;
+  if (infoDropdown) infoDropdown.innerHTML = `<option value="">-- Select a product --</option>`;
+  
+  // Check if we have any products
+  if (!products || products.length === 0) {
+    console.log("No products available to populate dropdowns");
+    
+    // Update any status indicators
+    const countElement = document.getElementById("availableProductCount");
+    if (countElement) {
+      countElement.textContent = "0 available products";
+    }
+    
+    // Clear product details since there are no products
+    const detailsDiv = document.getElementById("selectedProductDetails");
+    if (detailsDiv) {
+      detailsDiv.innerHTML = "No products available at this time";
+    }
+    
+    return;
+  }
+  
+  console.log(`Populating dropdowns with ${products.length} products`);
   
   // Add products to dropdowns
   products.forEach(product => {
-    const id = product.id ? product.id.toString() : product[0].toString();
+    // Safely extract product ID
+    let id = "";
+    if (product.id) {
+      id = product.id.toString();
+    } else if (product[0]) {
+      id = product[0].toString();
+    } else {
+      console.warn("Product has no ID, skipping", product);
+      return;
+    }
+    
+    // Safely extract product name
     const name = product.name || product[1] || "Unknown Product";
-    const price = product.price ? ethers.utils.formatEther(product.price) : 
-                ethers.utils.formatEther(product[3]);
+    
+    // Safely extract product price
+    let price = "Unknown";
+    try {
+      if (product.price) {
+        price = ethers.utils.formatEther(product.price);
+      } else if (product[3]) {
+        price = ethers.utils.formatEther(product[3]);
+      }
+    } catch (e) {
+      console.warn("Error formatting price for product", id, e);
+    }
     
     // Create option element
     const option = `<option value="${id}">${id} - ${name} (${price} HBAR)</option>`;
     
     // Add to all dropdowns
-    buyDropdown.innerHTML += option;
-    disputeDropdown.innerHTML += option;
-    infoDropdown.innerHTML += option;
+    if (buyDropdown) buyDropdown.innerHTML += option;
+    if (disputeDropdown) disputeDropdown.innerHTML += option;
+    if (infoDropdown) infoDropdown.innerHTML += option;
   });
   
-  // Add event listeners to update details when dropdown changes
-  buyDropdown.addEventListener("change", updateSelectedProductDetails);
-  infoDropdown.addEventListener("change", getSelectedProductInfo);
-}
-
-function updateSelectedProductDetails() {
-  const selectedId = document.getElementById("productDropdown").value;
-  const detailsDiv = document.getElementById("selectedProductDetails");
-  
-  if (!selectedId) {
-    detailsDiv.innerHTML = "No product selected";
-    return;
+  // Update product count indicator
+  const countElement = document.getElementById("availableProductCount");
+  if (countElement) {
+    countElement.textContent = `${products.length} available product${products.length !== 1 ? 's' : ''}`;
   }
   
-  // Find the selected product in the available products array
-  const selectedProduct = availableProducts.find(product => {
-    const id = product.id ? product.id.toString() : product[0].toString();
-    return id === selectedId;
-  });
-  
-  if (!selectedProduct) {
-    detailsDiv.innerHTML = "Product not found";
-    return;
+  // Try to restore previous selections if products still exist
+  try {
+    if (buySelected && buyDropdown && buyDropdown.querySelector(`option[value="${buySelected}"]`)) {
+      buyDropdown.value = buySelected;
+      // Manually trigger product details update
+      if (typeof window.updateSelectedProductDetails === 'function') {
+        window.updateSelectedProductDetails();
+      }
+    }
+    
+    if (disputeSelected && disputeDropdown && disputeDropdown.querySelector(`option[value="${disputeSelected}"]`)) {
+      disputeDropdown.value = disputeSelected;
+    }
+    
+    if (infoSelected && infoDropdown && infoDropdown.querySelector(`option[value="${infoSelected}"]`)) {
+      infoDropdown.value = infoSelected;
+      // Manually trigger product info update
+      if (typeof window.getSelectedProductInfo === 'function') {
+        window.getSelectedProductInfo();
+      }
+    }
+  } catch (e) {
+    console.warn("Error restoring selections:", e);
   }
-  
-  // Extract product details
-  const id = selectedProduct.id ? selectedProduct.id.toString() : selectedProduct[0].toString();
-  const name = selectedProduct.name || selectedProduct[1] || "Unknown Product";
-  const description = selectedProduct.description || selectedProduct[2] || "No description";
-  const price = selectedProduct.price ? ethers.utils.formatEther(selectedProduct.price) : 
-              ethers.utils.formatEther(selectedProduct[3]);
-  const seller = selectedProduct.seller || selectedProduct[4];
-  
-  // Update buy amount input with the product price
-  document.getElementById("buyAmount").value = price;
-  
-  // Display product details
-  detailsDiv.innerHTML = `
-    <strong>Product ID:</strong> ${id}<br>
-    <strong>Name:</strong> ${name}<br>
-    <strong>Price:</strong> ${price} HBAR<br>
-  `;
-}
-
-function showDebugInfo() {
-  const debugDiv = document.getElementById("debug-output");
-  
-  if (!OEMRegistry || !productManager || !marketplace || !disputeResolution) {
-    debugDiv.innerHTML = "Please connect your wallet first to see contract functions.";
-    return;
-  }
-  
-  let debugInfo = "<h3>Available Contract Functions</h3>";
-  
-  debugInfo += "<h4>OEMRegistry</h4>";
-  debugInfo += "<pre>" + Object.keys(OEMRegistry.functions).join("\n") + "</pre>";
-  
-  debugInfo += "<h4>ProductManager</h4>";
-  debugInfo += "<pre>" + Object.keys(productManager.functions).join("\n") + "</pre>";
-  
-  debugInfo += "<h4>Marketplace</h4>";
-  debugInfo += "<pre>" + Object.keys(marketplace.functions).join("\n") + "</pre>";
-  
-  debugInfo += "<h4>DisputeResolution</h4>";
-  debugInfo += "<pre>" + Object.keys(disputeResolution.functions).join("\n") + "</pre>";
-  
-  debugDiv.innerHTML = debugInfo;
 }
 
 async function checkProductAvailability() {
@@ -307,7 +436,10 @@ async function checkProductAvailability() {
     // Try a static call to check if purchase would succeed
     let callResult = "Not attempted";
     try {
-      await marketplace.callStatic.purchaseProduct(productId, {
+      // Create a marketplace contract connected to the buyer wallet
+      const marketplaceAsBuyer = marketplace.connect(buyerSigner);
+      
+      await marketplaceAsBuyer.callStatic.purchaseProduct(productId, {
         value: price,
         gasLimit: ethers.utils.hexlify(2000000),
         gasPrice: ethers.BigNumber.from(HEDERA_MIN_GAS_PRICE)
@@ -330,7 +462,8 @@ Available: ${isAvailable ? "✅ Yes" : "❌ No"}
 Seller: ${seller}
 Price: ${ethers.utils.formatEther(price)} HBAR
 Zero Address Seller: ${isZeroAddress ? "⚠️ Yes" : "✅ No"}
-Your Own Product: ${isOwnProduct ? "⚠️ Yes" : "✅ No"}
+Your Own Product: ${isOwnProduct ? "⚠️ Yes (Will use different buyer address)" : "✅ No"}
+Will purchase as: ${BUYER_ADDRESS}
 Static Purchase Call: ${callResult}
       </pre>
     `;
@@ -403,14 +536,16 @@ async function registerAsBuyer() {
   }
 
   try {
-    console.log("Attempting to register as buyer with address:", YOUR_ADDRESS);
+    // ONLY register the BUYER_ADDRESS as a buyer
+    // Don't register YOUR_ADDRESS as both OEM and Buyer
+    console.log("Attempting to register buyer address:", BUYER_ADDRESS);
     
-    // First check if already registered
-    const isAlreadyBuyer = await OEMRegistry.isBuyer(YOUR_ADDRESS);
-    console.log("Is already buyer?", isAlreadyBuyer);
+    // Check if already registered
+    const isBuyerRegistered = await OEMRegistry.isBuyer(BUYER_ADDRESS);
+    console.log("Is buyer already registered?", isBuyerRegistered);
     
-    if (isAlreadyBuyer) {
-      alert("Address is already registered as buyer!");
+    if (isBuyerRegistered) {
+      alert("Buyer address is already registered!");
       return;
     }
     
@@ -420,11 +555,9 @@ async function registerAsBuyer() {
       gasPrice: ethers.BigNumber.from(HEDERA_MIN_GAS_PRICE)
     };
     
-    console.log("Using gas price:", ethers.utils.formatUnits(HEDERA_MIN_GAS_PRICE, "gwei"), "Gwei");
-    
-    // Register user as Buyer (role = 2)
-    const tx = await OEMRegistry.registerUser(YOUR_ADDRESS, ROLE_BUYER, overrides);
-    console.log("Registration transaction sent:", tx.hash);
+    // Register ONLY the separate BUYER_ADDRESS as Buyer (role = 2)
+    const tx = await OEMRegistry.registerUser(BUYER_ADDRESS, ROLE_BUYER, overrides);
+    console.log("Buyer registration transaction sent:", tx.hash);
     
     alert("Buyer registration transaction submitted. Waiting for confirmation...");
     
@@ -434,7 +567,7 @@ async function registerAsBuyer() {
     // Check roles again
     await checkUserRoles();
     
-    alert("Successfully registered as buyer!");
+    alert(`Successfully registered ${BUYER_ADDRESS} as buyer!`);
     
   } catch (error) {
     console.error("❌ Error in buyer registration process:", error);
@@ -448,7 +581,6 @@ async function registerAsBuyer() {
     }
   }
 }
-
 async function addProduct() {
   if (!productManager) {
     alert("Please connect wallet first.");
@@ -521,6 +653,7 @@ async function addProduct() {
   }
 }
 
+// Improved buySelectedProduct function that properly updates the UI after purchase
 async function buySelectedProduct() {
   if (!marketplace) {
     alert("Please connect wallet first.");
@@ -542,14 +675,8 @@ async function buySelectedProduct() {
   }
 
   try {
-    // Check if user is a buyer
-    const isBuyer = await OEMRegistry.isBuyer(YOUR_ADDRESS);
-    if (!isBuyer) {
-      alert("You must be registered as a buyer to purchase products!");
-      return;
-    }
-    
-    console.log(`Buying product ID: ${id} with amount: ${amount} HBAR`);
+    // We'll now use the separate buyer address for purchases
+    console.log(`Buying product ID: ${id} with amount: ${amount} HBAR as address: ${BUYER_ADDRESS}`);
     
     // Convert to BigNumber for safety
     const idBN = ethers.BigNumber.from(id);
@@ -562,12 +689,25 @@ async function buySelectedProduct() {
     
     // Verify product exists and get its details
     let productPrice;
+    let originalProduct;
     try {
-      const product = await productManager.getProduct(idBN);
-      console.log("Complete product details:", product);
+      originalProduct = await productManager.getProduct(idBN);
+      console.log("Complete product details:", originalProduct);
+
+      // Check buyer account is not same as seller
+      const seller = originalProduct.seller || originalProduct[4];
+      if (seller.toLowerCase() === BUYER_ADDRESS.toLowerCase()) {
+        alert("Error: The buyer cannot purchase their own product. Please use a different buyer address.");
+        return;
+      }
+      
+      // Instead, add debug information
+      console.log("Product seller:", seller);
+      console.log("Buyer address:", BUYER_ADDRESS);
+      console.log("Your address:", YOUR_ADDRESS);
       
       // Extract price (index 3 or price property)
-      productPrice = product.price || product[3];
+      productPrice = originalProduct.price || originalProduct[3];
       console.log("Product price:", productPrice.toString());
       
       // Make sure we're sending enough
@@ -575,14 +715,6 @@ async function buySelectedProduct() {
         const requiredAmount = ethers.utils.formatEther(productPrice);
         alert(`Product costs ${requiredAmount} HBAR but you're only sending ${amount} HBAR. Please increase your amount.`);
         return;
-      }
-      
-      // Check if you're the seller
-      const seller = product.seller || product[4];
-      if (seller.toLowerCase() === YOUR_ADDRESS.toLowerCase()) {
-        if (!confirm("You are the seller of this product. Most marketplaces don't allow buying your own products. Try anyway?")) {
-          return;
-        }
       }
       
       // Add a small buffer to the price (sometimes contracts require a bit more to cover fees)
@@ -602,11 +734,47 @@ async function buySelectedProduct() {
       gasPrice: ethers.BigNumber.from(HEDERA_MIN_GAS_PRICE)
     };
     
-    // Try a different approach - buy with a different wallet if available
-    const tx = await marketplace.purchaseProduct(idBN, overrides);
-    console.log("Transaction sent:", tx.hash);
+    // For development/testing when MetaMask is not available, use the direct approach
+    // Make sure buyer signer is properly initialized
+    if (!buyerSigner) {
+      alert("Buyer wallet not initialized. Connect wallet first.");
+      return;
+    }
     
-    alert("Purchase transaction submitted. Waiting for confirmation...");
+    // Check if buyer is registered
+    const isBuyerRegistered = await OEMRegistry.isBuyer(BUYER_ADDRESS);
+    if (!isBuyerRegistered) {
+      alert("The buyer address is not registered. Registering it now as a buyer.");
+      try {
+        const regOverrides = {
+          gasLimit: ethers.utils.hexlify(1000000),
+          gasPrice: ethers.BigNumber.from(HEDERA_MIN_GAS_PRICE)
+        };
+        const buyerTx = await OEMRegistry.registerUser(BUYER_ADDRESS, ROLE_BUYER, regOverrides);
+        await buyerTx.wait();
+        console.log("Buyer registered successfully");
+      } catch (regError) {
+        console.error("Failed to register buyer:", regError);
+        alert(`Failed to register buyer: ${regError.message}`);
+        return;
+      }
+    }
+    
+    // Create a marketplace contract connected to the buyer wallet
+    const marketplaceAsBuyer = marketplace.connect(buyerSigner);
+    
+    // Make the purchase
+    alert("Purchase transaction submitting. Please wait...");
+    const tx = await marketplaceAsBuyer.purchaseProduct(idBN, overrides);
+    console.log("Transaction sent as buyer:", tx.hash);
+    
+    // Show user the transaction is in progress
+    const detailsDiv = document.getElementById("selectedProductDetails");
+    detailsDiv.innerHTML = `
+      <strong>Purchase in progress...</strong><br>
+      Transaction Hash: ${tx.hash}<br>
+      Please wait for confirmation.
+    `;
     
     try {
       const receipt = await tx.wait();
@@ -616,21 +784,38 @@ async function buySelectedProduct() {
         throw new Error("Transaction reverted on the blockchain. See console for details.");
       }
       
+      // Purchase successful - update UI immediately
       alert("Purchase successful!");
       
-      // Reload available products after purchase
-      await loadAvailableProducts();
+      // 1. Remove the purchased product from the availableProducts array directly
+      availableProducts = availableProducts.filter(product => {
+        const productId = product.id ? product.id.toString() : product[0].toString();
+        return productId !== id;
+      });
+      
+      // 2. Clear the selection and details
+      idSelect.value = "";
+      detailsDiv.innerHTML = "Purchase successful! Product has been removed from available products.";
+      document.getElementById("buyAmount").value = "";
+      
+      // 3. Update all dropdowns with the filtered list
+      populateProductDropdowns(availableProducts);
+      
+      // 4. Reload available products from blockchain after a short delay to ensure synced state
+      setTimeout(() => {
+        loadAvailableProducts();
+      }, 2000);
+      
     } catch (receiptError) {
       console.error("Transaction failed after submission:", receiptError);
       throw new Error("Transaction failed: " + receiptError.message);
     }
-    
   } catch (error) {
     console.error("❌ Purchase failed:", error);
     
     // Improved error handling for common errors
     if (error.message && error.message.includes("Not a buyer")) {
-      alert("Error: You are not registered as a buyer. Please register as a buyer first.");
+      alert("Error: The buyer address is not registered as a buyer. Please register as a buyer first.");
     } else if (error.message && error.message.includes("Product not available")) {
       alert("Error: This product is not available for purchase.");
     } else if (error.message && error.message.includes("Insufficient payment")) {
@@ -638,11 +823,11 @@ async function buySelectedProduct() {
     } else if (error.message && error.message.includes("transaction failed")) {
       // This is a reverted transaction
       alert("Transaction was reverted by the smart contract. This could be due to:\n" +
-            "1. The product doesn't exist or is already sold\n" +
-            "2. You're not authorized to buy this product\n" +
-            "3. There's an issue with the product price vs. the amount sent\n" +
-            "4. The contract might have a restriction against buying your own products\n" +
-            "Check the console for more details.");
+        "1. The product doesn't exist or is already sold\n" +
+        "2. You're not authorized to buy this product\n" +
+        "3. There's an issue with the product price vs. the amount sent\n" +
+        "4. The contract might have a restriction against buying your own products\n" +
+        "Check the console for more details.");
     } else if (error.message && error.message.includes("10_000_000_000 wei")) {
       alert("Transaction failed: Hedera requires a minimum transaction value of 0.0001 HBAR (1 tinybar).");
     } else {
@@ -652,116 +837,116 @@ async function buySelectedProduct() {
 }
 
 async function fileDisputeForSelected() {
-  if (!disputeResolution) {
-    alert("Please connect wallet first.");
-    return;
-  }
+if (!disputeResolution) {
+alert("Please connect wallet first.");
+return;
+}
 
-  const idSelect = document.getElementById("disputeProductDropdown");
-  const id = idSelect.value;
-  const reason = document.getElementById("disputeReason").value.trim();
+const idSelect = document.getElementById("disputeProductDropdown");
+const id = idSelect.value;
+const reason = document.getElementById("disputeReason").value.trim();
 
-  if (!id) {
-    alert("Please select a product to file a dispute for.");
-    return;
-  }
+if (!id) {
+alert("Please select a product to file a dispute for.");
+return;
+}
 
-  if (!reason) {
-    alert("Please enter a reason for the dispute.");
-    return;
-  }
+if (!reason) {
+alert("Please enter a reason for the dispute.");
+return;
+}
 
-  try {
-    console.log(`Filing dispute for product ${id}: ${reason}`);
-    
-    // Convert to BigNumber
-    const idBN = ethers.BigNumber.from(id);
-    
-    // Add gas configuration for Hedera with CORRECT minimum gas price
-    const overrides = {
-      gasLimit: ethers.utils.hexlify(1000000),
-      gasPrice: ethers.BigNumber.from(HEDERA_MIN_GAS_PRICE)
-    };
-    
-    const tx = await disputeResolution.fileDispute(idBN, reason, overrides);
-    console.log("Transaction sent:", tx.hash);
-    
-    alert("Dispute submission in progress. Please wait for confirmation...");
-    
-    const receipt = await tx.wait();
-    console.log("Transaction confirmed:", receipt);
-    
-    if (receipt.status === 1) {
-      alert("Dispute filed successfully.");
-      // Clear inputs
-      document.getElementById("disputeProductDropdown").value = "";
-      document.getElementById("disputeReason").value = "";
-    } else {
-      alert("Transaction completed but may have failed. Check the console for details.");
-    }
-  } catch (error) {
-    console.error("❌ Error filing dispute:", error);
-    
-    if (error.message && error.message.includes("transaction failed")) {
-      alert("Filing dispute failed. The transaction was reverted by the contract. You may not have permission or the product ID may be invalid.");
-    } else {
-      alert(`Error filing dispute: ${error.message}`);
-    }
-  }
+try {
+console.log(`Filing dispute for product ${id}: ${reason}`);
+
+// Convert to BigNumber
+const idBN = ethers.BigNumber.from(id);
+
+// Add gas configuration for Hedera with CORRECT minimum gas price
+const overrides = {
+  gasLimit: ethers.utils.hexlify(1000000),
+  gasPrice: ethers.BigNumber.from(HEDERA_MIN_GAS_PRICE)
+};
+
+const tx = await disputeResolution.fileDispute(idBN, reason, overrides);
+console.log("Transaction sent:", tx.hash);
+
+alert("Dispute submission in progress. Please wait for confirmation...");
+
+const receipt = await tx.wait();
+console.log("Transaction confirmed:", receipt);
+
+if (receipt.status === 1) {
+  alert("Dispute filed successfully.");
+  // Clear inputs
+  document.getElementById("disputeProductDropdown").value = "";
+  document.getElementById("disputeReason").value = "";
+} else {
+  alert("Transaction completed but may have failed. Check the console for details.");
+}
+} catch (error) {
+console.error("❌ Error filing dispute:", error);
+
+if (error.message && error.message.includes("transaction failed")) {
+  alert("Filing dispute failed. The transaction was reverted by the contract. You may not have permission or the product ID may be invalid.");
+} else {
+  alert(`Error filing dispute: ${error.message}`);
+}
+}
 }
 
 async function getSelectedProductInfo() {
-  if (!productManager) {
-    alert("Please connect wallet first.");
-    return;
-  }
+if (!productManager) {
+alert("Please connect wallet first.");
+return;
+}
 
-  const idSelect = document.getElementById("infoProductDropdown");
-  const id = idSelect.value;
-  const infoDiv = document.getElementById("productInfo");
+const idSelect = document.getElementById("infoProductDropdown");
+const id = idSelect.value;
+const infoDiv = document.getElementById("productInfo");
 
-  if (!id) {
-    infoDiv.innerHTML = "Please select a product to view information.";
-    return;
-  }
+if (!id) {
+infoDiv.innerHTML = "Please select a product to view information.";
+return;
+}
 
-  try {
-    console.log("Fetching information for product ID:", id);
-    
-    // Convert to BigNumber
-    const idBN = ethers.BigNumber.from(id);
-    
-    const product = await productManager.getProduct(idBN);
-    console.log("Product details:", product);
-    
-    // Format the product information for display
-    let productInfo = "";
-    
-    if (product) {
-      const productId = product.id ? product.id.toString() : (product[0] ? product[0].toString() : "Unknown");
-      const name = product.name || product[1] || "Unknown";
-      const description = product.description || product[2] || "Unknown";
-      const price = product.price ? ethers.utils.formatEther(product.price) : 
-                   (product[3] ? ethers.utils.formatEther(product[3]) : "Unknown");
-      const seller = product.seller || product[4] || "Unknown";
-      const isAvailable = (product.available !== undefined) ? product.available : 
-                         ((product[5] !== undefined) ? product[5] : "Unknown");
-      
-      productInfo = `
-        <strong>Product ID:</strong> ${productId}<br>
-        <strong>Name:</strong> ${name}<br>
-        <strong>Description:</strong> ${description}<br>
-        <strong>Price:</strong> ${price} HBAR<br>
-        <strong>Seller:</strong> ${seller}<br>
-        <strong>Available:</strong> ${isAvailable ? "Yes" : "No"}<br>
-      `;
-    } else {
-      productInfo = "Product not found or data format is unexpected.";
-    }
-    
-    infoDiv.innerHTML = productInfo;
-  } catch (error) {
-    console.error("❌ Error getting product info:", error);
-    infoDiv.innerHTML = `Error fetching product information: ${error.message}`;
-  }
+try {
+console.log("Fetching information for product ID:", id);
+
+// Convert to BigNumber
+const idBN = ethers.BigNumber.from(id);
+
+const product = await productManager.getProduct(idBN);
+console.log("Product details:", product);
+
+// Format the product information for display
+let productInfo = "";
+
+if (product) {
+  const productId = product.id ? product.id.toString() : (product[0] ? product[0].toString() : "Unknown");
+  const name = product.name || product[1] || "Unknown";
+  const description = product.description || product[2] || "Unknown";
+  const price = product.price ? ethers.utils.formatEther(product.price) : 
+               (product[3] ? ethers.utils.formatEther(product[3]) : "Unknown");
+  const seller = product.seller || product[4] || "Unknown";
+  const isAvailable = (product.available !== undefined) ? product.available : 
+                     ((product[5] !== undefined) ? product[5] : "Unknown");
+  
+  productInfo = `
+    <strong>Product ID:</strong> ${productId}<br>
+    <strong>Name:</strong> ${name}<br>
+    <strong>Description:</strong> ${description}<br>
+    <strong>Price:</strong> ${price} HBAR<br>
+    <strong>Seller:</strong> ${seller}<br>
+    <strong>Available:</strong> ${isAvailable ? "Yes" : "No"}<br>
+  `;
+} else {
+  productInfo = "Product not found or data format is unexpected.";
+}
+
+infoDiv.innerHTML = productInfo;
+} catch (error) {
+console.error("❌ Error getting product info:", error);
+infoDiv.innerHTML = `Error fetching product information: ${error.message}`;
+}
 }

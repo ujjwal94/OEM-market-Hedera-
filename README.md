@@ -1,4 +1,3 @@
-
 # Hedera OEM Marketplace
 
 A blockchain-based OEM marketplace built using Solidity and deployed via Hedera's JSON-RPC relay using Hardhat.
@@ -18,9 +17,20 @@ A blockchain-based OEM marketplace built using Solidity and deployed via Hedera'
 4. Compile: `npm run compile`
 5. Deploy: `npm run deploy`
 
+## Deloy
+npx hardhat run scripts/deploy.js --network hederaTestnet
 
-Deploying contracts with: 0xF1c0cF6924ECe517667Ea0A3393393391D01b863
-OEMRegistry deployed at: 0xb16Fb8Cef433811caB8f08c1e82DdC06678D244D
-ProductManager deployed at: 0xa4952F14fa54E41334f0d915a0a54162E3a215a1
-Marketplace deployed at: 0xe090ed0325F9dE97e10F6A7c03bB735083644079
-DisputeResolution deployed at: 0xA6f95F7F53a921eaF430630FbEaBC631e1BdC710
+Deployment Summary:
+==================
+OEMRegistry:        0xccEC3be4217c3335390299B290db88cA5Fd47573
+ProductManager:     0x54448C23AE24c7eaE4e0CE47CB31cB75e6AD6F33
+Marketplace:        0xB284F908Ce1d946bB4ef9A5b0Efc6460cA5d8d5b
+DisputeResolution:  0x6DDBDdeE3598fC4eBD187942048137253E09fFa6
+
+Registered Accounts:
+Deployer (Admin+OEM): 0xF1c0cF6924ECe517667Ea0A3393393391D01b863
+Buyer Account:        0xd1E77a74d017391888A8137892d53f814Dcb7B14
+
+Deployment info saved to: deployments/hederaTestnet_deployment.json
+Contract addresses also exported as JavaScript module in: deployments/hederaTestnet_addresses.js
+

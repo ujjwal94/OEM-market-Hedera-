@@ -25,8 +25,12 @@ contract Marketplace {
         require(product.available, "Product not available");
         require(msg.value >= product.price, "Insufficient payment");
 
+        // Transfer payment to seller
         payable(product.seller).transfer(product.price);
-
+        
+        // Mark product as sold/unavailable
+        productManager.markProductUnavailable(productId);
+        
         emit Purchase(msg.sender, productId);
     }
 }
